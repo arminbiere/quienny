@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -101,6 +102,28 @@ static void parse(polynom &p) {
   }
 }
 
+struct less_monom {
+  bool operator()(const monom &a, const monom &b) {
+    for (unsigned i = 0, bit = 1; i != variables; i++, bit <<= 1) {
+      const unsigned amask = a.mask & bit;
+      const unsigned bmask = b.mask & bit;
+      const unsigned avalue = a.values & bit;
+      const unsigned bvalue = b.values & bit;
+      if (amask < bmask)
+        return bvalue;
+      if (amask > bmask)
+        return !avalue;
+      if (avalue < bvalue)
+        return true;
+      if (avalue > bvalue)
+        return false;
+    }
+    return false;
+  }
+};
+
+static void sort(polynom &p) { sort(p.begin(), p.end(), less_monom()); }
+
 static void print(const polynom &p) {
   for (auto m : p)
     m.print();
@@ -120,22 +143,24 @@ int main(int argc, char **argv) {
   polynom p;
   parse(p);
   polynom q, primes;
-  bool *prime = new bool[p.size()];
+  vector<bool> prime;
   while (!p.empty()) {
     const size_t size = p.size();
+    prime.clear ();
     for (size_t i = 0; i != size; i++)
-      prime[i] = true;
+      prime.push_back (true);
     q.clear();
     for (size_t i = 0; i + 1 != size; i++) {
-      auto m1 = p[i];
+      auto mi = p[i];
       for (size_t j = i + 1; j != size; j++) {
-        auto &m2 = p[j];
+        auto &mj = p[j];
         unsigned bit;
-        if (!m1.match(m2, bit))
+        if (!mi.match(mj, bit))
           continue;
         prime[i] = prime[j] = false;
-        monom m = m1;
-        m.mask &= ~bit;
+        monom m;
+        m.mask = mi.mask & ~bit;
+        m.values = mi.values;
         insert(q, m);
       }
     }
@@ -144,7 +169,7 @@ int main(int argc, char **argv) {
         insert(primes, p[i]);
     p = q;
   }
-  delete[] prime;
+  sort (primes);
   print(primes);
   if (argc > 1)
     fclose(input);
