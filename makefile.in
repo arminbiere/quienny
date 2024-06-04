@@ -1,5 +1,9 @@
-quienny: quienny.c makefile
-	@COMPILE@ -o $@ $<
+COMPILE=@COMPILE@
+all: quienny
+quienny: quienny.cpp makefile
+	$(COMPILE) -o $@ $<
 clean:
 	rm -f quienny
-.PHONY: clean
+test: quienny
+	test/run.sh
+.PHONY: all clean test

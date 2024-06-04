@@ -18,7 +18,7 @@ do
   esac
   shift
 done
-COMPILE="gcc -Wall"
+COMPILE="g++ -Wall"
 if [ $debug = yes ]
 then
   COMPILE="$COMPILE -g3"
