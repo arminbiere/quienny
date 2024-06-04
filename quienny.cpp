@@ -60,7 +60,7 @@ struct monom {
         return false;
     return true;
   }
-  bool match (const monom & m, unsigned & where) {
+  bool match(const monom &m, unsigned &where) {
     if (mask != m.mask)
       return false;
     bool matched = false;
@@ -82,14 +82,14 @@ typedef vector<monom> polynom;
 
 static bool contains(const polynom &p, const monom &needle) {
   for (auto m : p)
-    if (m.equal (needle))
+    if (m.equal(needle))
       return true;
   return false;
 }
 
 static void insert(polynom &p, const monom &m) {
   if (!contains(p, m))
-    p.push_back (m);
+    p.push_back(m);
 }
 
 static void parse(polynom &p) {
@@ -108,7 +108,7 @@ static void print(const polynom &p) {
 
 int main(int argc, char **argv) {
   if (argc > 3)
-    die("too many arguments");
+    die("more than two arguments");
   if (argc == 1)
     input = stdin, output = stdout;
   else if (!(input = fopen(argv[1], "r")))
@@ -119,30 +119,32 @@ int main(int argc, char **argv) {
     die("can not write output file given as second argument");
   polynom p;
   parse(p);
-  vector<monom> primes;
+  polynom q, primes;
+  bool *prime = new bool[p.size()];
   while (!p.empty()) {
-    polynom q;
-    for (size_t i = 0; i != p.size(); i++) {
-      auto &m1 = p[i];
-      bool prime = true;
-      for (size_t j = 0; j != p.size(); j++) {
-        if (i == j)
-          continue;
+    const size_t size = p.size();
+    for (size_t i = 0; i != size; i++)
+      prime[i] = true;
+    q.clear();
+    for (size_t i = 0; i + 1 != size; i++) {
+      auto m1 = p[i];
+      for (size_t j = i + 1; j != size; j++) {
         auto &m2 = p[j];
         unsigned bit;
-        if (!m1.match (m2, bit))
+        if (!m1.match(m2, bit))
           continue;
-        monom m;
-        m.mask = m1.mask & ~bit;
-        m.values = m1.values;
-        prime = false;
-        insert (q, m);
+        prime[i] = prime[j] = false;
+        monom m = m1;
+        m.mask &= ~bit;
+        insert(q, m);
       }
-      if (prime)
-        insert (primes, m1);
     }
+    for (size_t i = 0; i != size; i++)
+      if (prime[i])
+        insert(primes, p[i]);
     p = q;
   }
+  delete[] prime;
   print(primes);
   if (argc > 1)
     fclose(input);

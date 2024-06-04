@@ -16,7 +16,7 @@ run () {
   status=$?
   if [ $status = 0 ]
   then
-    if [ -f $exp ]
+    if [ -f $gld ]
     then
       cmp $out $gld -s 1>/dev/null 2>/dev/null
       status=$?
@@ -34,3 +34,6 @@ run one
 run two
 run xor
 run xnor
+run ite
+run three
+run nothree
