@@ -1,0 +1,5 @@
+quienny: quienny.c makefile
+        @COMPILE@ -o $@ $<
+clean:
+	rm -f quienny
+.PHONY: clean
