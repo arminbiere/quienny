@@ -15,6 +15,7 @@ do
     -h | --help) usage; exit 0;;
     -g | --debug) debug=yes;;
     *) die "invalid option '$1' (try '-h')";;
+  esac
   shift
 done
 COMPILE="gcc -Wall"
