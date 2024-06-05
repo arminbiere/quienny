@@ -5,6 +5,8 @@ quienny: quienny.cpp makefile
 clean:
 	rm -f quienny makefile
 	make -C test clean
+format:
+	clang-format -i quienny.cpp
 test: quienny
 	test/run.sh
 .PHONY: all clean test

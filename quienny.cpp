@@ -146,9 +146,9 @@ int main(int argc, char **argv) {
   vector<bool> prime;
   while (!p.empty()) {
     const size_t size = p.size();
-    prime.clear ();
+    prime.clear();
     for (size_t i = 0; i != size; i++)
-      prime.push_back (true);
+      prime.push_back(true);
     q.clear();
     for (size_t i = 0; i + 1 != size; i++) {
       auto mi = p[i];
@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
         insert(primes, p[i]);
     p = q;
   }
-  sort (primes);
+  sort(primes);
   print(primes);
   if (argc > 1)
     fclose(input);
