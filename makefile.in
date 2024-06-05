@@ -3,7 +3,7 @@ all: quienny
 quienny: quienny.cpp makefile
 	$(COMPILE) -o $@ $<
 clean:
-	rm -f quienny
+	rm -f quienny makefile
 test: quienny
 	test/run.sh
 .PHONY: all clean test
