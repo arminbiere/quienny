@@ -4,6 +4,7 @@ quienny: quienny.cpp makefile
 	$(COMPILE) -o $@ $<
 clean:
 	rm -f quienny makefile
+	make -C test clean
 test: quienny
 	test/run.sh
 .PHONY: all clean test
