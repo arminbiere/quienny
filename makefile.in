@@ -15,6 +15,6 @@ clean:
 	+make -C test clean
 format:
 	clang-format -i quienny.cpp
-test: quienny
+test: all
 	test/run.sh
 .PHONY: all clean test

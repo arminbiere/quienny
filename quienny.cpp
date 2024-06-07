@@ -105,8 +105,9 @@ struct bitvector {
   }
   void add(const size_t i, bool value) { set(i, value); }
   bool operator!=(const bitvector &other) const { return bits != other.bits; }
-  bool operator<(const bitvector &other) const { return bits < other.bits; }
-  bool operator>(const bitvector &other) const { return bits > other.bits; }
+  bool operator<(const bitvector &other) const { return bits > other.bits; }
+  bool operator>(const bitvector &other) const { return bits < other.bits; }
+  // LSB comes first in the input and output. Thus we need to reverse order.
 };
 
 const size_t max_variables = 8 * sizeof(word);
@@ -147,17 +148,17 @@ struct monomial {
   bool match(const monomial &, size_t &where) const;
 };
 
-void monomial::print(FILE * file) const {
+void monomial::print(FILE *file) const {
   for (auto i : variables)
     fputc(mask.get(i) ? '0' + values.get(i) : '-', file);
   fputc('\n', file);
 }
 
 void monomial::debug() const {
-  fprintf (stderr, "%zu:", ones);
+  fprintf(stderr, "%zu:", ones);
   for (auto i : variables)
     fputc(mask.get(i) + '0', stderr);
-  fputc (':', stderr);
+  fputc(':', stderr);
   for (auto i : variables)
     fputc(values.get(i) + '0', stderr);
 }
@@ -221,7 +222,7 @@ bool monomial::operator==(const monomial &other) const {
 }
 
 // The less-than operator '<' is used to sort and normalize the polynomial.
-// Sorting is first done with respect to the number of (valid) '1' bits 
+// Sorting is first done with respect to the number of (valid) '1' bits
 // 'ones', then with respect to the mask , and finally the value bits.
 
 bool monomial::operator<(const monomial &other) const {
@@ -244,15 +245,25 @@ bool monomial::operator<(const monomial &other) const {
 // is the case the result parameter 'where' is set to that bit position.
 
 bool monomial::match(const monomial &other, size_t &where) const {
-  assert (ones <= other.ones);
+  assert(ones <= other.ones);
   if (ones + 1 != other.ones)
     return false;
   if (mask != other.mask)
     return false;
+#ifdef FIXED
+  const word difference = values.bits ^ other.values.bits;
+  if (difference & (difference - 1))
+    return false;
+  assert(difference);
+  where = 1;
+  while ((word)1 << where != difference)
+    where++;
+  return true;
+#else
   bool matched = false;
   for (auto i : variables) {
-    bool this_value = values.get (i);
-    bool other_value = other.values.get (i);
+    const bool this_value = values.get(i);
+    const bool other_value = other.values.get(i);
     if (this_value == other_value)
       continue;
     if (this_value > other_value)
@@ -263,6 +274,7 @@ bool monomial::match(const monomial &other, size_t &where) const {
     where = i;
   }
   return matched;
+#endif
 }
 
 //------------------------------------------------------------------------//
@@ -275,7 +287,7 @@ struct polynom {
 
   void parse();
   void normalize();
-  void debug () const;
+  void debug() const;
   void print(FILE *) const;
 
   bool empty() const { return monomials.empty(); }
@@ -311,10 +323,10 @@ void polynom::normalize() {
 
 void polynom::debug() const {
   for (auto m : monomials)
-    m.debug (), fputc ('\n', stderr);
+    m.debug(), fputc('\n', stderr);
 }
 
-void polynom::print(FILE * file) const {
+void polynom::print(FILE *file) const {
   for (auto m : monomials)
     m.print(file);
 }
@@ -342,7 +354,7 @@ void generate(polynom &p, polynom &primes) {
         size_t k;
         if (!mi.match(mj, k))
           continue;
-        assert (!mi.values.get(k));
+        assert(!mi.values.get(k));
         prime[i] = prime[j] = false;
         monomial m = mi;
         m.mask.set(k, false);
@@ -400,7 +412,7 @@ int main(int argc, char **argv) {
   init(argc, argv);
   polynom minterms;
   minterms.parse();
-  minterms.normalize ();
+  minterms.normalize();
   polynom primes, tmp = minterms;
   generate(tmp, primes);
   primes.normalize();
