@@ -181,35 +181,48 @@ bool monom::match(const monom &other, size_t &where) const {
   }
   return matched;
 }
+
 //------------------------------------------------------------------------//
 
-typedef vector<monom> polynom;
+struct polynom {
+  vector<monom> monoms;
+  bool contains(const monom &) const;
+  void insert(const monom &m);
+  void parse();
+  void sort();
+  void print() const;
 
-static bool contains(const polynom &p, const monom &needle) {
-  for (auto m : p)
+  bool empty () const { return monoms.empty (); }
+  size_t size () const { return monoms.size (); }
+  void clear () { monoms.clear (); }
+  const monom & operator [] (size_t i) const { return monoms[i]; }
+};
+
+bool polynom::contains(const monom &needle) const {
+  for (auto m : monoms)
     if (m == needle)
       return true;
   return false;
 }
 
-static void insert(polynom &p, const monom &m) {
-  if (!contains(p, m))
-    p.push_back(m);
+void polynom::insert(const monom &m) {
+  if (!contains(m))
+    monoms.push_back(m);
 }
 
-static void parse(polynom &p) {
+void polynom::parse() {
   monom m;
   if (m.first()) {
-    p.push_back(m);
+    insert(m);
     while (m.read())
-      insert(p, m);
+      insert(m);
   }
 }
 
-static void sort(polynom &p) { sort(p.begin(), p.end()); }
+void polynom::sort() { ::sort(monoms.begin(), monoms.end()); }
 
-static void print(const polynom &p) {
-  for (auto m : p)
+void polynom::print() const {
+  for (auto m : monoms)
     m.print();
 }
 
@@ -227,7 +240,7 @@ int main(int argc, char **argv) {
   else if (!(output = fopen(argv[2], "w")))
     die("can not write output file given as second argument");
   polynom p;
-  parse(p);
+  p.parse();
   polynom q, primes;
   vector<bool> prime;
   while (!p.empty()) {
@@ -246,16 +259,16 @@ int main(int argc, char **argv) {
         prime[i] = prime[j] = false;
         monom m = mi;
         m.mask[k] = false;
-        insert(q, m);
+        q.insert(m);
       }
     }
     for (size_t i = 0; i != size; i++)
       if (prime[i])
-        insert(primes, p[i]);
+        primes.insert(p[i]);
     p = q;
   }
-  sort(primes);
-  print(primes);
+  primes.sort();
+  primes.print();
   if (argc > 1)
     fclose(input);
   if (argc > 2)
