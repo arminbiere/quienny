@@ -207,22 +207,27 @@ bool monomial::operator==(const monomial &other) const {
 
 // The less-than operator '<' is used to sort and normalize the polynomial.
 // Sorting is first done with respect to the number of (valid) '1' bits, and
-// then lexicographically with respect to '0' < '-' < '1'.
+// then with respect to the mask bits, and finally the value bits.
 
 bool monomial::operator<(const monomial &other) const {
+  if (ones < other.ones)
+    return true;
+  if (ones > other.ones)
+    return false;
   for (auto i : variables) {
-    if (ones < other.ones)
-      return true;
-    if (ones > other.ones)
-      return false;
     const bool this_mask = mask.get(i);
-    const bool this_value = values.get(i);
     const bool other_mask = other.mask.get(i);
-    const bool other_value = other.values.get(i);
     if (this_mask < other_mask)
-      return other_value;
+      return true;
     if (this_mask > other_mask)
-      return !this_value;
+      return false;
+  }
+  for (auto i : variables) {
+    const bool this_mask = mask.get(i);
+    if (!this_mask)
+      continue;
+    const bool this_value = values.get(i);
+    const bool other_value = other.values.get(i);
     if (this_value < other_value)
       return true;
     if (this_value > other_value)
@@ -313,6 +318,7 @@ void generate(polynom &p, polynom &primes) {
     for (size_t i = 0; i != size; i++)
       prime.push_back(true);
     tmp.clear();
+#if 1
     for (size_t i = 0; i + 1 != size; i++) {
       const auto &mi = p[i];
       for (size_t j = i + 1; j != size; j++) {
@@ -328,6 +334,12 @@ void generate(polynom &p, polynom &primes) {
         tmp.add(m);
       }
     }
+#else
+    size_t begin1 = 0;
+    size_t end1 = begin1 + 1;
+    while (end1 != size && p[begin1].ones == p[end1].ones)
+    while (begin1 != size) {
+#endif
     for (size_t i = 0; i != size; i++)
       if (prime[i])
         primes.add(p[i]);

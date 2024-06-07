@@ -12,7 +12,7 @@ quienny64: quienny.cpp makefile
 	$(COMPILE) -o $@ -DFIXED=uint64_t $<
 clean:
 	rm -f quienny quienny8 quienny16 quienny32 quienny64 makefile
-	make -C test clean
+	+make -C test clean
 format:
 	clang-format -i quienny.cpp
 test: quienny
