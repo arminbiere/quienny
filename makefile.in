@@ -1,9 +1,17 @@
 COMPILE=@COMPILE@
-all: quienny
+all: quienny quienny8 quienny16 quienny32 quienny64
 quienny: quienny.cpp makefile
 	$(COMPILE) -o $@ $<
+quienny8: quienny.cpp makefile
+	$(COMPILE) -o $@ -DFIXED=uint8_t $<
+quienny16: quienny.cpp makefile
+	$(COMPILE) -o $@ -DFIXED=uint16_t $<
+quienny32: quienny.cpp makefile
+	$(COMPILE) -o $@ -DFIXED=uint32_t $<
+quienny64: quienny.cpp makefile
+	$(COMPILE) -o $@ -DFIXED=uint64_t $<
 clean:
-	rm -f quienny makefile
+	rm -f quienny quienny8 quienny16 quienny32 quienny64 makefile
 	make -C test clean
 format:
 	clang-format -i quienny.cpp

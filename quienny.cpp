@@ -84,19 +84,27 @@ static void parse_error(const char *msg) {
 // bits and the mask of valid bits.  The first is of fixed size and the type
 // given as argument to '-DFIXED=<type>' during compilation will determine
 // how many variables are available (for instance with '-DFIXED=unsigned' we
-// get 32 = 8 * 4 variables).  The second implementation uses a generic
+// get '32 = 8 * 4' variables).  The second implementation uses a generic
 // implementation with 'vector<bool>', which is kind of compact, but uses
 // much more space per monomial than a plain word-based implementation and
 // is accordingly also much slower.
 
-// #define FIXED unsigned
-
 #ifdef FIXED
+
+#include <cstdint> // Allows to use 'uint32_t' for FIXED.
 
 typedef FIXED word;
 
 struct bitvector {
   word bits = 0;
+  bool get(const size_t i) const { return bits & ((word)1 << i); }
+  void set(const size_t i, bool value) {
+    word mask = (word)1 << i;
+    word bit = (word)value << i;
+    bits = (bits & ~mask) | bit;
+  }
+  void add(const size_t i, bool value) { set(i, value); }
+  bool operator!=(const bitvector &other) const { return bits != other.bits; }
 };
 
 const size_t max_variables = 8 * sizeof(word);
@@ -107,11 +115,7 @@ struct bitvector {
   vector<bool> bits;
   bool get(const size_t i) const { return bits[i]; }
   void set(const size_t i, bool value) { bits[i] = value; };
-  void add(const size_t i, bool value) {
-    assert(bits.size() == i);
-    bits.push_back(value);
-    (void)i;
-  }
+  void add(const size_t, bool value) { bits.push_back(value); }
   bool operator!=(const bitvector &other) const { return bits != other.bits; }
 };
 
@@ -211,10 +215,10 @@ bool monomial::operator<(const monomial &other) const {
       return true;
     if (ones > other.ones)
       return false;
-    const bool this_mask = mask.get (i);
-    const bool this_value = values.get (i);
-    const bool other_mask = other.mask.get (i);
-    const bool other_value = other.values.get (i);
+    const bool this_mask = mask.get(i);
+    const bool this_value = values.get(i);
+    const bool other_mask = other.mask.get(i);
+    const bool other_value = other.values.get(i);
     if (this_mask < other_mask)
       return other_value;
     if (this_mask > other_mask)
@@ -235,9 +239,9 @@ bool monomial::match(const monomial &other, size_t &where) const {
     return false;
   bool matched = false;
   for (auto i : variables) {
-    if (!mask.get (i))
+    if (!mask.get(i))
       continue;
-    if (values.get (i) == other.values.get (i))
+    if (values.get(i) == other.values.get(i))
       continue;
     if (matched)
       return false;
@@ -318,8 +322,8 @@ void generate(polynom &p, polynom &primes) {
           continue;
         prime[i] = prime[j] = false;
         monomial m = mi;
-        m.mask.set (k, false);
-        if (m.values.get (k))
+        m.mask.set(k, false);
+        if (m.values.get(k))
           m.ones--;
         tmp.add(m);
       }
