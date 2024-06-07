@@ -105,6 +105,8 @@ struct bitvector {
   }
   void add(const size_t i, bool value) { set(i, value); }
   bool operator!=(const bitvector &other) const { return bits != other.bits; }
+  bool operator<(const bitvector &other) const { return bits < other.bits; }
+  bool operator>(const bitvector &other) const { return bits > other.bits; }
 };
 
 const size_t max_variables = 8 * sizeof(word);
@@ -117,6 +119,8 @@ struct bitvector {
   void set(const size_t i, bool value) { bits[i] = value; };
   void add(const size_t, bool value) { bits.push_back(value); }
   bool operator!=(const bitvector &other) const { return bits != other.bits; }
+  bool operator<(const bitvector &other) const { return bits < other.bits; }
+  bool operator>(const bitvector &other) const { return bits > other.bits; }
 };
 
 const size_t max_variables = ~(size_t)0;
@@ -133,7 +137,8 @@ struct monomial {
   size_t ones = 0;
   bitvector mask;
   bitvector values;
-  void print();
+  void debug() const;
+  void print(FILE *) const;
   bool parse_first();
   bool parse_remaining();
   bool operator==(const monomial &) const;
@@ -142,10 +147,19 @@ struct monomial {
   bool match(const monomial &, size_t &where) const;
 };
 
-void monomial::print() {
+void monomial::print(FILE * file) const {
   for (auto i : variables)
-    fputc(mask.get(i) ? '0' + values.get(i) : '-', output);
-  fputc('\n', output);
+    fputc(mask.get(i) ? '0' + values.get(i) : '-', file);
+  fputc('\n', file);
+}
+
+void monomial::debug() const {
+  fprintf (stderr, "%zu:", ones);
+  for (auto i : variables)
+    fputc(mask.get(i) + '0', stderr);
+  fputc (':', stderr);
+  for (auto i : variables)
+    fputc(values.get(i) + '0', stderr);
 }
 
 // Parsing the first monomial in the 'input' file also sets the range of
@@ -180,6 +194,7 @@ bool monomial::parse_remaining() {
   int ch = read_char();
   if (ch == EOF)
     return false;
+  ones = 0;
   for (auto i : variables) {
     bool value = false;
     if (ch == '1')
@@ -206,33 +221,22 @@ bool monomial::operator==(const monomial &other) const {
 }
 
 // The less-than operator '<' is used to sort and normalize the polynomial.
-// Sorting is first done with respect to the number of (valid) '1' bits, and
-// then with respect to the mask bits, and finally the value bits.
+// Sorting is first done with respect to the number of (valid) '1' bits 
+// 'ones', then with respect to the mask , and finally the value bits.
 
 bool monomial::operator<(const monomial &other) const {
   if (ones < other.ones)
     return true;
   if (ones > other.ones)
     return false;
-  for (auto i : variables) {
-    const bool this_mask = mask.get(i);
-    const bool other_mask = other.mask.get(i);
-    if (this_mask < other_mask)
-      return true;
-    if (this_mask > other_mask)
-      return false;
-  }
-  for (auto i : variables) {
-    const bool this_mask = mask.get(i);
-    if (!this_mask)
-      continue;
-    const bool this_value = values.get(i);
-    const bool other_value = other.values.get(i);
-    if (this_value < other_value)
-      return true;
-    if (this_value > other_value)
-      return false;
-  }
+  if (mask < other.mask)
+    return true;
+  if (mask > other.mask)
+    return false;
+  if (values < other.values)
+    return true;
+  if (values > other.values)
+    return false;
   return false;
 }
 
@@ -240,14 +244,19 @@ bool monomial::operator<(const monomial &other) const {
 // is the case the result parameter 'where' is set to that bit position.
 
 bool monomial::match(const monomial &other, size_t &where) const {
+  assert (ones <= other.ones);
+  if (ones + 1 != other.ones)
+    return false;
   if (mask != other.mask)
     return false;
   bool matched = false;
   for (auto i : variables) {
-    if (!mask.get(i))
+    bool this_value = values.get (i);
+    bool other_value = other.values.get (i);
+    if (this_value == other_value)
       continue;
-    if (values.get(i) == other.values.get(i))
-      continue;
+    if (this_value > other_value)
+      return false;
     if (matched)
       return false;
     matched = true;
@@ -266,7 +275,8 @@ struct polynom {
 
   void parse();
   void normalize();
-  void print() const;
+  void debug () const;
+  void print(FILE *) const;
 
   bool empty() const { return monomials.empty(); }
   size_t size() const { return monomials.size(); }
@@ -299,9 +309,14 @@ void polynom::normalize() {
   monomials.resize(j - begin);
 }
 
-void polynom::print() const {
+void polynom::debug() const {
   for (auto m : monomials)
-    m.print();
+    m.debug (), fputc ('\n', stderr);
+}
+
+void polynom::print(FILE * file) const {
+  for (auto m : monomials)
+    m.print(file);
 }
 
 //------------------------------------------------------------------------//
@@ -319,6 +334,7 @@ void generate(polynom &p, polynom &primes) {
       prime.push_back(true);
     tmp.clear();
 #if 1
+    // This is the unoptimized version, which compares all pairs.
     for (size_t i = 0; i + 1 != size; i++) {
       const auto &mi = p[i];
       for (size_t j = i + 1; j != size; j++) {
@@ -326,19 +342,25 @@ void generate(polynom &p, polynom &primes) {
         size_t k;
         if (!mi.match(mj, k))
           continue;
+        assert (!mi.values.get(k));
         prime[i] = prime[j] = false;
         monomial m = mi;
         m.mask.set(k, false);
-        if (m.values.get(k))
-          m.ones--;
         tmp.add(m);
       }
     }
 #else
-    size_t begin1 = 0;
-    size_t end1 = begin1 + 1;
-    while (end1 != size && p[begin1].ones == p[end1].ones)
-    while (begin1 != size) {
+    // This is the optimized version.  A 'block' is an interval of monomials
+    // with the same number 'ones' of valid true bits'.  A 'slice' is an
+    // interval of monomials with the same number 'ones' of true bits (thus
+    // a sub-interval of a block) and also the same valid bits in 'mask'.
+    // Only slices with the same 'mask' have to be compared in consecutive
+    // blocks.  Therefore we go over all pairs of subsequent blocks.
+    size_t begin_first_block = 0;
+    size_t end_first_block = begin_first_block;
+    while (end_first_block != size &&
+           p[begin_first_block].ones == p[end_first_block].ones)
+      end_first_block++;
 #endif
     for (size_t i = 0; i != size; i++)
       if (prime[i])
@@ -378,10 +400,11 @@ int main(int argc, char **argv) {
   init(argc, argv);
   polynom minterms;
   minterms.parse();
+  minterms.normalize ();
   polynom primes, tmp = minterms;
   generate(tmp, primes);
   primes.normalize();
-  primes.print();
+  primes.print(output);
   reset(argc);
   return 0;
 }
