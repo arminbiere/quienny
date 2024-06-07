@@ -4,6 +4,8 @@ die () {
   exit 1
 }
 
+cd `dirname $0`/..
+
 run () {
   [ -f ./$quienny ] || die "could not find '$quienny'"
   pol=test/$1.pol
@@ -40,10 +42,12 @@ do
   run three
   run nothree
   run example
+  run abo3
+  run abz3
   run all3
-  run noall3
+  run abo4
+  run abz4
   run all4
-  run noall4
   case $quienny in
     quienny8|quienny16) continue;
   esac

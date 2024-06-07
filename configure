@@ -5,15 +5,17 @@ usage: configure [ <option> ... ]
 
 where '<option>' is one of the following
 
--h | --help     print this command line option summary
--g | --debug    compile for debugging (implies '-c' and '-s')
--c | --check    compile with assertion checking (implied by '-g')
--s | --symbols  compile with symbol table (implied by '-g')
+-h | --help             print this command line option summary
+-g | --debug            compile for debugging (implies '-c' and '-s')
+-c | --check            compile with assertion checking (implied by '-g')
+-s | --symbols          compile with symbol table (implied by '-g')
+-n | --no-optimization  disable optimized algorithm
 EOF
 }
 debug=no
 check=unknown
 symbols=unknown
+optimize=yes
 die () {
   echo "configure: error: $*" 1>&2
   exit 1
@@ -25,6 +27,7 @@ do
     -g | --debug) debug=yes;;
     -c | --check) check=yes;;
     -s | --symbols) symbols=yes;;
+    -n | --no-optimize) optimize=no;;
     *) die "invalid option '$1' (try '-h')";;
   esac
   shift
@@ -35,5 +38,6 @@ COMPILE="g++ -Wall"
 [ $symbols = yes ] && COMPILE="$COMPILE -ggdb -g3"
 [ $debug = no ] && COMPILE="$COMPILE -O3"
 [ $check = no ] && COMPILE="$COMPILE -DNDEBUG"
+[ $optimize = no ] && COMPILE="$COMPILE -DNOPTIMIZE"
 echo "$COMPILE"
 sed -e "s,@COMPILE@,$COMPILE," makefile.in > makefile

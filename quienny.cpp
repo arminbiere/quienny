@@ -223,7 +223,7 @@ bool monomial::operator==(const monomial &other) const {
   return true;
 }
 
-// The less-than operator '<' is used to sort and normalize the polynomial.
+// The less-than operator '<' is used to sort and normalize the polynomialial.
 // Sorting is first done with respect to the number of (valid) '1' bits
 // 'ones', then with respect to the mask , and finally the value bits.
 
@@ -244,28 +244,51 @@ bool monomial::operator<(const monomial &other) const {
 }
 
 // Check whether the 'other' monomial differs in exactly one valid bit. If this
-// is the case the result parameter 'where' is set to that bit position.
+// is the case the result parameter 'where' is set to that bit position.  We
+// specialize this for the fixed maximum variable sizes and therefore have
+// two versions of the code (one with '#ifddef FIXED ... #else' and one for
+// the general case withing '#else ... #endif').
 
 bool monomial::match(const monomial &other, size_t &where) const {
+
 #if 0
   debug(), fputc(' ', stderr), other.debug(), fputc('\n', stderr);
 #endif
+
+#ifdef NOPTIMIZE
   assert(ones <= other.ones);
   if (ones + 1 != other.ones)
     return false;
+
   if (mask != other.mask)
     return false;
+#else
+  assert(ones + 1 == other.ones);
+  assert(mask == other.mask);
+#endif
+
 #ifdef FIXED
+
+  // The fixed bit-vector version can use bit-twiddling hacks.
+
   const word difference = values.bits ^ other.values.bits;
   if (difference & (difference - 1)) // Not power-of two?
     return false;
+
   assert(difference); // Normalization makes them all different.
+
   where = 1;
   while ((word)1 << where != difference)
     where++;
+
   return true;
+
 #else
+
+  // The generic bit-vector version has to use indexed access.
+
   bool matched = false;
+
   for (auto i : variables) {
     const bool this_value = values.get(i);
     const bool other_value = other.values.get(i);
@@ -278,16 +301,18 @@ bool monomial::match(const monomial &other, size_t &where) const {
     matched = true;
     where = i;
   }
+
   assert(matched); // Normalization makes thema ll different.
   return matched;
+
 #endif
 }
 
 //------------------------------------------------------------------------//
 
-// A polynomial is in essence a vector of monomials.
+// A polynomialial is in essence a vector of monomials.
 
-struct polynom {
+struct polynomial {
 
   vector<monomial> monomials;
 
@@ -303,7 +328,7 @@ struct polynom {
   const monomial &operator[](size_t i) const { return monomials[i]; }
 };
 
-void polynom::parse() {
+void polynomial::parse() {
   monomial m;
   if (m.parse_first()) {
     add(m);
@@ -312,9 +337,9 @@ void polynom::parse() {
   }
 }
 
-// Normalize the polynomial by sorting and removing duplicates.
+// Normalize the polynomialial by sorting and removing duplicates.
 
-void polynom::normalize() {
+void polynomial::normalize() {
   sort(monomials.begin(), monomials.end());
   const auto begin = monomials.begin();
   const auto end = monomials.end();
@@ -327,25 +352,37 @@ void polynom::normalize() {
   monomials.resize(j - begin);
 }
 
-void polynom::debug() const {
+void polynomial::debug() const {
   for (auto m : monomials)
     m.debug(), fputc('\n', stderr);
 }
 
-void polynom::print(FILE *file) const {
+void polynomial::print(FILE *file) const {
   for (auto m : monomials)
     m.print(file);
 }
 
 //------------------------------------------------------------------------//
 
-// Generate a normalized polynomial of primes of 'p' (destroys 'p') using
-// the Quine-McCluskey algorithm.
+static inline bool consensus(const monomial &mi, const monomial &mj,
+                          polynomial &next, polynomial &primes) {
+  size_t k;
+  if (!mi.match(mj, k))
+    return false;
+  assert(!mi.values.get(k));
+  monomial m = mi;
+  m.mask.set(k, false);
+  next.add(m);
+  return true;
+}
 
-void generate(polynom &p, polynom &primes) {
+// Generate a normalized 'primes' polynomialial of 'p' (destroys 'p') based on
+// the Quine-McCluskey algorithm in an non-optimzed and optimized variant.
+
+void generate(polynomial &p, polynomial &primes) {
 
   vector<bool> prime;
-  polynom tmp;
+  polynomial next;
 
   while (!p.empty()) {
 
@@ -353,37 +390,38 @@ void generate(polynom &p, polynom &primes) {
     prime.clear();
     for (size_t i = 0; i != size; i++)
       prime.push_back(true);
-    tmp.clear();
 
-#if 0
+    next.clear();
 
-    // This is the unoptimized version, which compares all pairs.
+#ifdef NOPTIMIZE
 
-    for (size_t i = 0; i + 1 != size; i++) {
-      const auto &mi = p[i];
-      for (size_t j = i + 1; j != size; j++) {
-        const auto &mj = p[j];
-        size_t k;
-        if (!mi.match(mj, k))
-          continue;
-        assert(!mi.values.get(k));
-        prime[i] = prime[j] = false;
-        monomial m = mi;
-        m.mask.set(k, false);
-        tmp.add(m);
-      }
-    }
+    // This is the simple unoptimized version, which compares all pairs
+    // (if enabled with './configure -n' or './configure --no-optimize').
+
+    for (size_t i = 0; i + 1 != size; i++)
+      for (size_t j = i + 1; j != size; j++)
+        if (consensus(p[i], p[j], next, primes))
+          prime[i] = prime[j] = false;
 
 #else
 
-    // This is the optimized version.  A 'block' is an interval of monomials
-    // with the same number 'ones' of valid true bits'.  A 'slice' is an
-    // interval of monomials with the same number 'ones' of true bits (thus
-    // a sub-interval of a block) and also the same valid bits in 'mask'.
+    // This is the optimized version (enabled by default).  It uses sorting
+    // by normalization to avoid a quadratic number of 'match' comparisons,
+    // similarly to one pass in merge-sort.
+
+    // A 'block' is an interval of monomials with the same number 'ones' of
+    // valid true bits'.  A 'slice' is an interval of monomials with the
+    // same number 'ones' of true bits (thus a sub-interval of a block) and
+    // also the same valid bits in 'mask'.
 
     // Only slices with the same 'mask' have to be compared in consecutive
     // blocks.  Therefore we go over all pairs of subsequent blocks and
     // compare corresponding slices within them.
+
+    // As blocks are ordered by 'ones' and within blocks slices are ordered
+    // by 'mask' and we only need to compare monomials with the same number
+    // of ones and the same mask, the overall complexity of one outer loop
+    // round becomes linear in the size of that outer polynomialial 'p'.
 
     size_t begin_first_block = 0;
     size_t end_first_block = begin_first_block + 1;
@@ -403,6 +441,7 @@ void generate(polynom &p, polynom &primes) {
       if (p[begin_first_block].ones + 1 == p[begin_second_block].ones) {
 
         size_t begin_first_slice = begin_first_block;
+        size_t begin_second_slice = begin_second_block;
 
         while (begin_first_slice != end_first_block) {
 
@@ -411,7 +450,6 @@ void generate(polynom &p, polynom &primes) {
                  p[begin_first_slice].mask == p[end_first_slice].mask)
             end_first_slice++;
 
-          size_t begin_second_slice = begin_second_block;
           while (begin_second_slice != end_second_block &&
                  p[begin_first_slice].mask != p[begin_second_slice].mask)
             begin_second_slice++;
@@ -423,20 +461,13 @@ void generate(polynom &p, polynom &primes) {
                    p[begin_first_slice].mask == p[end_second_slice].mask)
               end_second_slice++;
 
-            for (size_t i = begin_first_slice; i != end_first_slice; i++) {
-              const auto &mi = p[i];
-              for (size_t j = begin_second_slice; j != end_second_slice; j++) {
-                const auto &mj = p[j];
-                size_t k;
-                if (!mi.match(mj, k))
-                  continue;
-                assert(!mi.values.get(k));
-                prime[i] = prime[j] = false;
-                monomial m = mi;
-                m.mask.set(k, false);
-                tmp.add(m);
-              }
-            }
+            // This is the same code as in the unoptimized version except
+            // that we can restrict the comparisons to smaller intervals.
+
+            for (size_t i = begin_first_slice; i != end_first_slice; i++)
+              for (size_t j = begin_second_slice; j != end_second_slice; j++)
+                if (consensus(p[i], p[j], next, primes))
+                  prime[i] = prime[j] = false;
           }
 
           begin_first_slice = end_first_slice;
@@ -453,8 +484,8 @@ void generate(polynom &p, polynom &primes) {
       if (prime[i])
         primes.add(p[i]);
 
-    tmp.normalize(); // Sort and remove duplicates.
-    p = tmp;
+    next.normalize(); // Sort and remove duplicates.
+    p = next;
   }
 }
 
@@ -486,10 +517,10 @@ static void reset(int argc) {
 
 int main(int argc, char **argv) {
   init(argc, argv);
-  polynom minterms;
+  polynomial minterms;
   minterms.parse();
   minterms.normalize();
-  polynom primes, tmp = minterms;
+  polynomial primes, tmp = minterms;
   generate(tmp, primes);
   primes.normalize();
   primes.print(output);
