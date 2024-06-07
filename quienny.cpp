@@ -30,16 +30,26 @@ static int read_char() {
 // The purpose of this struct is to enable the use of the idiom
 //
 //   for (auto i : variables)
+//     ...
 //
-// It not only simplifies the code but more important avoids that the
-// compiler needs to rely on alias analysis to make sure that 'variables' is
-// not written inside the loop and has to be read during every iteration.
-
-// In more recent C++ versions 'itoa' could be used instead.
+// It not only simplifies code but more important avoids that the compiler
+// needs to rely on alias analysis to make sure that 'n' is not written
+// inside the loop and has to be read during every iteration as in
+//
+//   for (size_t i = 0; i != variables; i++)
+//     ...
+//
+// unless you explicitly write
+//
+//   for (size_t i = 0, end = variables; i != end; i++)
+//     ...
+//
+// which clearly is harder to read.
 
 struct range {
   size_t size = 0;
   void operator++(int) { size++; }
+  operator size_t() const { return size; }
   struct iterator {
     size_t current;
     void operator++() { current++; }
@@ -70,17 +80,58 @@ static void parse_error(const char *msg) {
 
 //------------------------------------------------------------------------//
 
-// A monomiale consists of a bit-vector of 'values' masked by 'mask'.  Only
+// We have two types of implementations of bitvectors used to store value
+// bits and the mask of valid bits.  The first is of fixed size and the type
+// given as argument to '-DFIXED=<type>' during compilation will determine
+// how many variables are available (for instance with '-DFIXED=unsigned' we
+// get 32 = 8 * 4 variables).  The second implementation uses a generic
+// implementation with 'vector<bool>', which is kind of compact, but uses
+// much more space per monomial than a plain word-based implementation and
+// is accordingly also much slower.
+
+// #define FIXED unsigned
+
+#ifdef FIXED
+
+typedef FIXED word;
+
+struct bitvector {
+  word bits = 0;
+};
+
+const size_t max_variables = 8 * sizeof(word);
+
+#else
+
+struct bitvector {
+  vector<bool> bits;
+  bool get(const size_t i) const { return bits[i]; }
+  void set(const size_t i, bool value) { bits[i] = value; };
+  void add(const size_t i, bool value) {
+    assert(bits.size() == i);
+    bits.push_back(value);
+    (void)i;
+  }
+  bool operator!=(const bitvector &other) const { return bits != other.bits; }
+};
+
+const size_t max_variables = ~(size_t)0;
+
+#endif
+
+//------------------------------------------------------------------------//
+
+// A monomial consists of a bit-vector of 'values' masked by 'mask'.  Only
 // value bits which have a corresponding mask bit set are valid.  The others
 // are invalid, thus "don't cares" ('-').
 
 struct monomial {
   size_t ones = 0;
-  vector<bool> mask;
-  vector<bool> values;
+  bitvector mask;
+  bitvector values;
   void print();
-  bool first(); // Parse first monomiale.
-  bool read();  // Parse following monomiales.
+  bool parse_first();
+  bool parse_remaining();
   bool operator==(const monomial &) const;
   bool operator!=(const monomial &other) const { return !(*this == other); }
   bool operator<(const monomial &) const;
@@ -89,14 +140,14 @@ struct monomial {
 
 void monomial::print() {
   for (auto i : variables)
-    fputc(mask[i] ? '0' + values[i] : '-', output);
+    fputc(mask.get(i) ? '0' + values.get(i) : '-', output);
   fputc('\n', output);
 }
 
-// Parsing the first monomiale in the 'input' file also sets the range of
+// Parsing the first monomial in the 'input' file also sets the range of
 // variables.  The function returns 'false' if end-of-file is found instead.
 
-bool monomial::first() {
+bool monomial::parse_first() {
   int ch = read_char();
   if (ch == EOF)
     return false;
@@ -106,8 +157,10 @@ bool monomial::first() {
       value = true;
     else if (ch != '0')
       parse_error("expected '0' or '1' or new-line");
-    values.push_back(value);
-    mask.push_back(true);
+    if (variables == max_variables)
+      parse_error("monomial too large");
+    values.add(variables, value);
+    mask.add(variables, true);
     ones += value;
     ch = read_char();
     variables++;
@@ -115,11 +168,11 @@ bool monomial::first() {
   return true;
 }
 
-// Parsing the remaining monomiale in the 'input' file after parsing the first
-// one. These monomiales need to have the size of the 'first' parsed monomiale.
+// Parsing the remaining monomial in the 'input' file after parsing the first
+// one. These monomials need to have the size of the 'first' parsed monomial.
 // The function returns 'false' if the end-of-file is reached.
 
-bool monomial::read() {
+bool monomial::parse_remaining() {
   int ch = read_char();
   if (ch == EOF)
     return false;
@@ -129,8 +182,8 @@ bool monomial::read() {
       value = true;
     else if (ch != '0')
       parse_error("expected '0' or '1'");
-    values[i] = value;
-    mask[i] = true;
+    values.set(i, value);
+    mask.set(i, true);
     ones += value;
     ch = read_char();
   }
@@ -143,7 +196,7 @@ bool monomial::operator==(const monomial &other) const {
   if (mask != other.mask)
     return false;
   for (auto i : variables)
-    if (mask[i] && values[i] != other.values[i])
+    if (mask.get(i) && values.get(i) != other.values.get(i))
       return false;
   return true;
 }
@@ -158,10 +211,10 @@ bool monomial::operator<(const monomial &other) const {
       return true;
     if (ones > other.ones)
       return false;
-    const bool this_mask = mask[i];
-    const bool this_value = values[i];
-    const bool other_mask = other.mask[i];
-    const bool other_value = other.values[i];
+    const bool this_mask = mask.get (i);
+    const bool this_value = values.get (i);
+    const bool other_mask = other.mask.get (i);
+    const bool other_value = other.values.get (i);
     if (this_mask < other_mask)
       return other_value;
     if (this_mask > other_mask)
@@ -182,9 +235,9 @@ bool monomial::match(const monomial &other, size_t &where) const {
     return false;
   bool matched = false;
   for (auto i : variables) {
-    if (!mask[i])
+    if (!mask.get (i))
       continue;
-    if (values[i] == other.values[i])
+    if (values.get (i) == other.values.get (i))
       continue;
     if (matched)
       return false;
@@ -196,13 +249,12 @@ bool monomial::match(const monomial &other, size_t &where) const {
 
 //------------------------------------------------------------------------//
 
-// A polynomial is in essence a vector of monomialials.
+// A polynomial is in essence a vector of monomials.
 
 struct polynom {
 
   vector<monomial> monomials;
 
-  // bool contains(const monomial &) const;
   void parse();
   void normalize();
   void print() const;
@@ -210,36 +262,23 @@ struct polynom {
   bool empty() const { return monomials.empty(); }
   size_t size() const { return monomials.size(); }
   void clear() { monomials.clear(); }
-  void add(const monomial &m) { monomials.push_back (m); }
+  void add(const monomial &m) { monomials.push_back(m); }
   const monomial &operator[](size_t i) const { return monomials[i]; }
 };
 
-#if 0
-bool polynom::contains(const monomial &needle) const {
-  for (auto m : monomials)
-    if (m == needle)
-      return true;
-  return false;
-}
-void polynom::add(const monomial &m) {
-  if (!contains(m))
-    monomials.push_back(m);
-}
-#endif
-
-
 void polynom::parse() {
   monomial m;
-  if (m.first()) {
+  if (m.parse_first()) {
     add(m);
-    while (m.read())
+    while (m.parse_remaining())
       add(m);
   }
 }
 
+// Normalize the polynomial by sorting and removing duplicates.
 
 void polynom::normalize() {
-sort(monomials.begin(), monomials.end());
+  sort(monomials.begin(), monomials.end());
   const auto begin = monomials.begin();
   const auto end = monomials.end();
   if (begin == end)
@@ -258,7 +297,8 @@ void polynom::print() const {
 
 //------------------------------------------------------------------------//
 
-// Generate the polynomial of primes (destroys 'p') with Quine-McCluskey.
+// Generate a normalized polynomial of primes of 'p' (destroys 'p') using
+// the Quine-McCluskey algorithm.
 
 void generate(polynom &p, polynom &primes) {
   vector<bool> prime;
@@ -278,8 +318,8 @@ void generate(polynom &p, polynom &primes) {
           continue;
         prime[i] = prime[j] = false;
         monomial m = mi;
-        m.mask[k] = false;
-        if (m.values[k])
+        m.mask.set (k, false);
+        if (m.values.get (k))
           m.ones--;
         tmp.add(m);
       }
@@ -293,6 +333,8 @@ void generate(polynom &p, polynom &primes) {
 }
 
 //------------------------------------------------------------------------//
+
+// Parse command line options and set/reset input and output files.
 
 static void init(int argc, char **argv) {
   if (argc > 3)
@@ -318,10 +360,10 @@ static void reset(int argc) {
 
 int main(int argc, char **argv) {
   init(argc, argv);
-  polynom p;
-  p.parse();
-  polynom primes;
-  generate(p, primes);
+  polynom minterms;
+  minterms.parse();
+  polynom primes, tmp = minterms;
+  generate(tmp, primes);
   primes.normalize();
   primes.print();
   reset(argc);
