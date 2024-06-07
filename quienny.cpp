@@ -82,6 +82,7 @@ struct monomial {
   bool first(); // Parse first monomiale.
   bool read();  // Parse following monomiales.
   bool operator==(const monomial &) const;
+  bool operator!=(const monomial &other) const { return !(*this == other); }
   bool operator<(const monomial &) const;
   bool match(const monomial &, size_t &where) const;
 };
@@ -201,30 +202,31 @@ struct polynom {
 
   vector<monomial> monomials;
 
-  bool contains(const monomial &) const;
-  void add(const monomial &m);
+  // bool contains(const monomial &) const;
   void parse();
-  void sort();
   void normalize();
   void print() const;
 
   bool empty() const { return monomials.empty(); }
   size_t size() const { return monomials.size(); }
   void clear() { monomials.clear(); }
+  void add(const monomial &m) { monomials.push_back (m); }
   const monomial &operator[](size_t i) const { return monomials[i]; }
 };
 
+#if 0
 bool polynom::contains(const monomial &needle) const {
   for (auto m : monomials)
     if (m == needle)
       return true;
   return false;
 }
-
 void polynom::add(const monomial &m) {
   if (!contains(m))
     monomials.push_back(m);
 }
+#endif
+
 
 void polynom::parse() {
   monomial m;
@@ -235,7 +237,19 @@ void polynom::parse() {
   }
 }
 
-void polynom::sort() { ::sort(monomials.begin(), monomials.end()); }
+
+void polynom::normalize() {
+sort(monomials.begin(), monomials.end());
+  const auto begin = monomials.begin();
+  const auto end = monomials.end();
+  if (begin == end)
+    return;
+  auto j = begin + 1;
+  for (auto i = j; i != end; i++)
+    if (*i != j[-1])
+      *j++ = *i;
+  monomials.resize(j - begin);
+}
 
 void polynom::print() const {
   for (auto m : monomials)
@@ -273,6 +287,7 @@ void generate(polynom &p, polynom &primes) {
     for (size_t i = 0; i != size; i++)
       if (prime[i])
         primes.add(p[i]);
+    tmp.normalize();
     p = tmp;
   }
 }
@@ -307,7 +322,7 @@ int main(int argc, char **argv) {
   p.parse();
   polynom primes;
   generate(p, primes);
-  primes.sort();
+  primes.normalize();
   primes.print();
   reset(argc);
   return 0;
