@@ -1,7 +1,14 @@
 #!/bin/sh
 usage () {
 cat <<EOF
-usage: configure [-h | --debug] [-g | --debug] [-c | --check] [-s | --symbols]
+usage: configure [ <option> ... ]
+
+where '<option>' is one of the following
+
+-h | --help     print this command line option summary
+-g | --debug    compile for debugging (implies '-c' and '-s')
+-c | --check    compile with assertion checking (implied by '-g')
+-s | --symbols  compile with symbol table (implied by '-g')
 EOF
 }
 debug=no
