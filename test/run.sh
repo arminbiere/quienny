@@ -37,3 +37,9 @@ run xnor
 run ite
 run three
 run nothree
+run example
+run two32
+run all3
+run noall3
+run all4
+run noall4

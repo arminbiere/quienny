@@ -70,31 +70,32 @@ static void parse_error(const char *msg) {
 
 //------------------------------------------------------------------------//
 
-// A monome consists of a bit-vector of 'values' masked by 'mask'.  Only
+// A monomiale consists of a bit-vector of 'values' masked by 'mask'.  Only
 // value bits which have a corresponding mask bit set are valid.  The others
 // are invalid, thus "don't cares" ('-').
 
-struct monom {
+struct monomial {
+  size_t ones = 0;
   vector<bool> mask;
   vector<bool> values;
   void print();
-  bool first(); // Parse first monome.
-  bool read();  // Parse following monomes.
-  bool operator==(const monom &) const;
-  bool operator<(const monom &) const;
-  bool match(const monom &, size_t &where) const;
+  bool first(); // Parse first monomiale.
+  bool read();  // Parse following monomiales.
+  bool operator==(const monomial &) const;
+  bool operator<(const monomial &) const;
+  bool match(const monomial &, size_t &where) const;
 };
 
-void monom::print() {
+void monomial::print() {
   for (auto i : variables)
     fputc(mask[i] ? '0' + values[i] : '-', output);
   fputc('\n', output);
 }
 
-// Parsing the first monome in the 'input' file also sets the range of
+// Parsing the first monomiale in the 'input' file also sets the range of
 // variables.  The function returns 'false' if end-of-file is found instead.
 
-bool monom::first() {
+bool monomial::first() {
   int ch = read_char();
   if (ch == EOF)
     return false;
@@ -106,17 +107,18 @@ bool monom::first() {
       parse_error("expected '0' or '1' or new-line");
     values.push_back(value);
     mask.push_back(true);
+    ones += value;
     ch = read_char();
     variables++;
   }
   return true;
 }
 
-// Parsing the remaining monome in the 'input' file after parsing the first
-// one. These monomes need to have the size of the 'first' parsed monome.
+// Parsing the remaining monomiale in the 'input' file after parsing the first
+// one. These monomiales need to have the size of the 'first' parsed monomiale.
 // The function returns 'false' if the end-of-file is reached.
 
-bool monom::read() {
+bool monomial::read() {
   int ch = read_char();
   if (ch == EOF)
     return false;
@@ -128,6 +130,7 @@ bool monom::read() {
       parse_error("expected '0' or '1'");
     values[i] = value;
     mask[i] = true;
+    ones += value;
     ch = read_char();
   }
   if (ch != '\n')
@@ -135,7 +138,7 @@ bool monom::read() {
   return true;
 }
 
-bool monom::operator==(const monom &other) const {
+bool monomial::operator==(const monomial &other) const {
   if (mask != other.mask)
     return false;
   for (auto i : variables)
@@ -144,8 +147,16 @@ bool monom::operator==(const monom &other) const {
   return true;
 }
 
-bool monom::operator<(const monom &other) const {
+// The less-than operator '<' is used to sort and normalize the polynomial.
+// Sorting is first done with respect to the number of (valid) '1' bits, and
+// then lexicographically with respect to '0' < '-' < '1'.
+
+bool monomial::operator<(const monomial &other) const {
   for (auto i : variables) {
+    if (ones < other.ones)
+      return true;
+    if (ones > other.ones)
+      return false;
     const bool this_mask = mask[i];
     const bool this_value = values[i];
     const bool other_mask = other.mask[i];
@@ -162,10 +173,10 @@ bool monom::operator<(const monom &other) const {
   return false;
 }
 
-// Check whether the 'other' monom differs in exactly one valid bit. If this
+// Check whether the 'other' monomial differs in exactly one valid bit. If this
 // is the case the result parameter 'where' is set to that bit position.
 
-bool monom::match(const monom &other, size_t &where) const {
+bool monomial::match(const monomial &other, size_t &where) const {
   if (mask != other.mask)
     return false;
   bool matched = false;
@@ -184,51 +195,91 @@ bool monom::match(const monom &other, size_t &where) const {
 
 //------------------------------------------------------------------------//
 
+// A polynomial is in essence a vector of monomialials.
+
 struct polynom {
-  vector<monom> monoms;
-  bool contains(const monom &) const;
-  void insert(const monom &m);
+
+  vector<monomial> monomials;
+
+  bool contains(const monomial &) const;
+  void add(const monomial &m);
   void parse();
   void sort();
+  void normalize();
   void print() const;
 
-  bool empty () const { return monoms.empty (); }
-  size_t size () const { return monoms.size (); }
-  void clear () { monoms.clear (); }
-  const monom & operator [] (size_t i) const { return monoms[i]; }
+  bool empty() const { return monomials.empty(); }
+  size_t size() const { return monomials.size(); }
+  void clear() { monomials.clear(); }
+  const monomial &operator[](size_t i) const { return monomials[i]; }
 };
 
-bool polynom::contains(const monom &needle) const {
-  for (auto m : monoms)
+bool polynom::contains(const monomial &needle) const {
+  for (auto m : monomials)
     if (m == needle)
       return true;
   return false;
 }
 
-void polynom::insert(const monom &m) {
+void polynom::add(const monomial &m) {
   if (!contains(m))
-    monoms.push_back(m);
+    monomials.push_back(m);
 }
 
 void polynom::parse() {
-  monom m;
+  monomial m;
   if (m.first()) {
-    insert(m);
+    add(m);
     while (m.read())
-      insert(m);
+      add(m);
   }
 }
 
-void polynom::sort() { ::sort(monoms.begin(), monoms.end()); }
+void polynom::sort() { ::sort(monomials.begin(), monomials.end()); }
 
 void polynom::print() const {
-  for (auto m : monoms)
+  for (auto m : monomials)
     m.print();
 }
 
 //------------------------------------------------------------------------//
 
-int main(int argc, char **argv) {
+// Generate the polynomial of primes (destroys 'p') with Quine-McCluskey.
+
+void generate(polynom &p, polynom &primes) {
+  vector<bool> prime;
+  polynom tmp;
+  while (!p.empty()) {
+    const size_t size = p.size();
+    prime.clear();
+    for (size_t i = 0; i != size; i++)
+      prime.push_back(true);
+    tmp.clear();
+    for (size_t i = 0; i + 1 != size; i++) {
+      const auto &mi = p[i];
+      for (size_t j = i + 1; j != size; j++) {
+        const auto &mj = p[j];
+        size_t k;
+        if (!mi.match(mj, k))
+          continue;
+        prime[i] = prime[j] = false;
+        monomial m = mi;
+        m.mask[k] = false;
+        if (m.values[k])
+          m.ones--;
+        tmp.add(m);
+      }
+    }
+    for (size_t i = 0; i != size; i++)
+      if (prime[i])
+        primes.add(p[i]);
+    p = tmp;
+  }
+}
+
+//------------------------------------------------------------------------//
+
+static void init(int argc, char **argv) {
   if (argc > 3)
     die("more than two arguments");
   if (argc == 1)
@@ -239,39 +290,25 @@ int main(int argc, char **argv) {
     output = stdout;
   else if (!(output = fopen(argv[2], "w")))
     die("can not write output file given as second argument");
-  polynom p;
-  p.parse();
-  polynom q, primes;
-  vector<bool> prime;
-  while (!p.empty()) {
-    const size_t size = p.size();
-    prime.clear();
-    for (size_t i = 0; i != size; i++)
-      prime.push_back(true);
-    q.clear();
-    for (size_t i = 0; i + 1 != size; i++) {
-      const auto &mi = p[i];
-      for (size_t j = i + 1; j != size; j++) {
-        const auto &mj = p[j];
-        size_t k;
-        if (!mi.match(mj, k))
-          continue;
-        prime[i] = prime[j] = false;
-        monom m = mi;
-        m.mask[k] = false;
-        q.insert(m);
-      }
-    }
-    for (size_t i = 0; i != size; i++)
-      if (prime[i])
-        primes.insert(p[i]);
-    p = q;
-  }
-  primes.sort();
-  primes.print();
+}
+
+static void reset(int argc) {
   if (argc > 1)
     fclose(input);
   if (argc > 2)
     fclose(output);
+}
+
+/*------------------------------------------------------------------------*/
+
+int main(int argc, char **argv) {
+  init(argc, argv);
+  polynom p;
+  p.parse();
+  polynom primes;
+  generate(p, primes);
+  primes.sort();
+  primes.print();
+  reset(argc);
   return 0;
 }
