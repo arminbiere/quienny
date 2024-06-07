@@ -105,6 +105,7 @@ struct bitvector {
   }
   void add(const size_t i, bool value) { set(i, value); }
   bool operator!=(const bitvector &other) const { return bits != other.bits; }
+  bool operator==(const bitvector &other) const { return bits == other.bits; }
   bool operator<(const bitvector &other) const { return bits > other.bits; }
   bool operator>(const bitvector &other) const { return bits < other.bits; }
   // LSB comes first in the input and output. Thus we need to reverse order.
@@ -120,6 +121,7 @@ struct bitvector {
   void set(const size_t i, bool value) { bits[i] = value; };
   void add(const size_t, bool value) { bits.push_back(value); }
   bool operator!=(const bitvector &other) const { return bits != other.bits; }
+  bool operator==(const bitvector &other) const { return bits == other.bits; }
   bool operator<(const bitvector &other) const { return bits < other.bits; }
   bool operator>(const bitvector &other) const { return bits > other.bits; }
 };
@@ -245,6 +247,9 @@ bool monomial::operator<(const monomial &other) const {
 // is the case the result parameter 'where' is set to that bit position.
 
 bool monomial::match(const monomial &other, size_t &where) const {
+#if 0
+  debug(), fputc(' ', stderr), other.debug(), fputc('\n', stderr);
+#endif
   assert(ones <= other.ones);
   if (ones + 1 != other.ones)
     return false;
@@ -273,7 +278,7 @@ bool monomial::match(const monomial &other, size_t &where) const {
     matched = true;
     where = i;
   }
-  assert (matched); // Normalization makes thema ll different.
+  assert(matched); // Normalization makes thema ll different.
   return matched;
 #endif
 }
@@ -338,16 +343,22 @@ void polynom::print(FILE *file) const {
 // the Quine-McCluskey algorithm.
 
 void generate(polynom &p, polynom &primes) {
+
   vector<bool> prime;
   polynom tmp;
+
   while (!p.empty()) {
+
     const size_t size = p.size();
     prime.clear();
     for (size_t i = 0; i != size; i++)
       prime.push_back(true);
     tmp.clear();
-#if 1
+
+#if 0
+
     // This is the unoptimized version, which compares all pairs.
+
     for (size_t i = 0; i + 1 != size; i++) {
       const auto &mi = p[i];
       for (size_t j = i + 1; j != size; j++) {
@@ -362,23 +373,87 @@ void generate(polynom &p, polynom &primes) {
         tmp.add(m);
       }
     }
+
 #else
+
     // This is the optimized version.  A 'block' is an interval of monomials
     // with the same number 'ones' of valid true bits'.  A 'slice' is an
     // interval of monomials with the same number 'ones' of true bits (thus
     // a sub-interval of a block) and also the same valid bits in 'mask'.
+
     // Only slices with the same 'mask' have to be compared in consecutive
-    // blocks.  Therefore we go over all pairs of subsequent blocks.
+    // blocks.  Therefore we go over all pairs of subsequent blocks and
+    // compare corresponding slices within them.
+
     size_t begin_first_block = 0;
-    size_t end_first_block = begin_first_block;
+    size_t end_first_block = begin_first_block + 1;
     while (end_first_block != size &&
            p[begin_first_block].ones == p[end_first_block].ones)
       end_first_block++;
+
+    while (end_first_block != size) {
+
+      const size_t begin_second_block = end_first_block;
+      size_t end_second_block = begin_second_block + 1;
+
+      while (end_second_block != size &&
+             p[begin_second_block].ones == p[end_second_block].ones)
+        end_second_block++;
+
+      if (p[begin_first_block].ones + 1 == p[begin_second_block].ones) {
+
+        size_t begin_first_slice = begin_first_block;
+
+        while (begin_first_slice != end_first_block) {
+
+          size_t end_first_slice = begin_first_slice + 1;
+          while (end_first_slice != end_first_block &&
+                 p[begin_first_slice].mask == p[end_first_slice].mask)
+            end_first_slice++;
+
+          size_t begin_second_slice = begin_second_block;
+          while (begin_second_slice != end_second_block &&
+                 p[begin_first_slice].mask != p[begin_second_slice].mask)
+            begin_second_slice++;
+
+          if (begin_second_slice != end_second_block) {
+
+            size_t end_second_slice = begin_second_slice + 1;
+            while (end_second_slice != end_second_block &&
+                   p[begin_first_slice].mask == p[end_second_slice].mask)
+              end_second_slice++;
+
+            for (size_t i = begin_first_slice; i != end_first_slice; i++) {
+              const auto &mi = p[i];
+              for (size_t j = begin_second_slice; j != end_second_slice; j++) {
+                const auto &mj = p[j];
+                size_t k;
+                if (!mi.match(mj, k))
+                  continue;
+                assert(!mi.values.get(k));
+                prime[i] = prime[j] = false;
+                monomial m = mi;
+                m.mask.set(k, false);
+                tmp.add(m);
+              }
+            }
+          }
+
+          begin_first_slice = end_first_slice;
+        }
+      }
+
+      begin_first_block = begin_second_block;
+      end_first_block = end_second_block;
+    }
+
 #endif
+
     for (size_t i = 0; i != size; i++)
       if (prime[i])
         primes.add(p[i]);
-    tmp.normalize();
+
+    tmp.normalize(); // Sort and remove duplicates.
     p = tmp;
   }
 }
