@@ -252,9 +252,9 @@ bool monomial::match(const monomial &other, size_t &where) const {
     return false;
 #ifdef FIXED
   const word difference = values.bits ^ other.values.bits;
-  if (difference & (difference - 1))
+  if (difference & (difference - 1)) // Not power-of two?
     return false;
-  assert(difference);
+  assert(difference); // Normalization makes them all different.
   where = 1;
   while ((word)1 << where != difference)
     where++;
@@ -273,6 +273,7 @@ bool monomial::match(const monomial &other, size_t &where) const {
     matched = true;
     where = i;
   }
+  assert (matched); // Normalization makes thema ll different.
   return matched;
 #endif
 }

@@ -1,10 +1,12 @@
 #!/bin/sh
 usage () {
 cat <<EOF
-usage: configure [-h | --debug] [-g | --debug]
+usage: configure [-h | --debug] [-g | --debug] [-c | --check] [-s | --symbols]
 EOF
 }
 debug=no
+check=unknown
+symbols=unknown
 die () {
   echo "configure: error: $*" 1>&2
   exit 1
@@ -14,16 +16,17 @@ do
   case "$1" in
     -h | --help) usage; exit 0;;
     -g | --debug) debug=yes;;
+    -c | --check) check=yes;;
+    -s | --symbols) symbols=yes;;
     *) die "invalid option '$1' (try '-h')";;
   esac
   shift
 done
 COMPILE="g++ -Wall"
-if [ $debug = yes ]
-then
-  COMPILE="$COMPILE -g3"
-else
-  COMPILE="$COMPILE -O3 -DNDEBUG"
-fi
+[ $check = unknown ] && check=$debug
+[ $symbols = unknown ] && symbols=$debug
+[ $symbols = yes ] && COMPILE="$COMPILE -ggdb -g3"
+[ $debug = no ] && COMPILE="$COMPILE -O3"
+[ $check = no ] && COMPILE="$COMPILE -DNDEBUG"
 echo "$COMPILE"
 sed -e "s,@COMPILE@,$COMPILE," makefile.in > makefile
