@@ -1,7 +1,10 @@
 #include <algorithm>
 #include <cassert>
+#include <climits>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 //------------------------------------------------------------------------//
@@ -12,12 +15,20 @@ using namespace std;
 
 // Global input and output variables.
 
-static const char *path;
+static FILE *input_file;
+static const char *input_path;
+static bool close_input;
+
+static FILE *output_file;
+static const char *output_path;
+static bool close_output;
+
+/*------------------------------------------------------------------------*/
+
 static size_t lineno = 1;
-static FILE *input, *output;
 
 static int read_char() {
-  int res = getc(input);
+  int res = getc(input_file);
   if (res == '\n')
     lineno++;
   return res;
@@ -67,15 +78,36 @@ static range variables;
 
 //------------------------------------------------------------------------//
 
-static void die(const char *msg) {
-  fprintf(stderr, "quienny: error: %s\n", msg);
+static void die(const char *, ...) __attribute__((format(printf, 1, 2)));
+static void verbose(const char *, ...) __attribute__((format(printf, 1, 2)));
+
+static void die(const char *fmt, ...) {
+  fputs("quienny: error: ", stderr);
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fputc('\n', stderr);
   exit(1);
 }
 
 static void parse_error(const char *msg) {
   fprintf(stderr, "quienny: parse error: at line %zu in '%s': %s\n", lineno,
-          path, msg);
+          input_path, msg);
   exit(1);
+}
+
+static int verbosity;
+
+static void verbose(const char *fmt, ...) {
+  if (verbosity < 1)
+    return;
+  va_list ap;
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fputc('\n', stderr);
+  fflush(stderr);
 }
 
 //------------------------------------------------------------------------//
@@ -223,9 +255,11 @@ bool monomial::operator==(const monomial &other) const {
   return true;
 }
 
-// The less-than operator '<' is used to sort and normalize the polynomialial.
+// The less-than operator '<' is used to sort and normalize the polynomial.
 // Sorting is first done with respect to the number of (valid) '1' bits
-// 'ones', then with respect to the mask , and finally the value bits.
+// 'ones', then with respect to the 'mask' , and finally the 'values'.
+
+// This order is required for the optimized algorithm to work.
 
 bool monomial::operator<(const monomial &other) const {
   if (ones < other.ones)
@@ -236,11 +270,7 @@ bool monomial::operator<(const monomial &other) const {
     return true;
   if (mask > other.mask)
     return false;
-  if (values < other.values)
-    return true;
-  if (values > other.values)
-    return false;
-  return false;
+  return values < other.values;
 }
 
 // Check whether the 'other' monomial differs in exactly one valid bit. If this
@@ -249,7 +279,11 @@ bool monomial::operator<(const monomial &other) const {
 // two versions of the code (one with '#ifddef FIXED ... #else' and one for
 // the general case withing '#else ... #endif').
 
+static size_t compared; // Number of compared monomials.
+
 bool monomial::match(const monomial &other, size_t &where) const {
+
+  compared++;
 
 #if 0
   debug(), fputc(' ', stderr), other.debug(), fputc('\n', stderr);
@@ -310,7 +344,7 @@ bool monomial::match(const monomial &other, size_t &where) const {
 
 //------------------------------------------------------------------------//
 
-// A polynomialial is in essence a vector of monomials.
+// A polynomial is in essence a vector of monomials.
 
 struct polynomial {
 
@@ -337,10 +371,10 @@ void polynomial::parse() {
   }
 }
 
-// Normalize the polynomialial by sorting and removing duplicates.
+// Normalize the polynomial by sorting and removing duplicates.
 
 void polynomial::normalize() {
-  sort(monomials.begin(), monomials.end());
+  stable_sort(monomials.begin(), monomials.end());
   const auto begin = monomials.begin();
   const auto end = monomials.end();
   if (begin == end)
@@ -364,30 +398,43 @@ void polynomial::print(FILE *file) const {
 
 //------------------------------------------------------------------------//
 
+// This the kernel of the Quine-McCluskey algorithm.  It tries to determine
+// whether two monomials can be merged, i.e., only different in exactly one
+// variable.  If this is the case the monomials are merged, the result goes
+// to 'next' and the function returns 'true'. On failure return 'false'.
+
 static inline bool consensus(const monomial &mi, const monomial &mj,
-                          polynomial &next, polynomial &primes) {
+                             polynomial &next) {
   size_t k;
   if (!mi.match(mj, k))
     return false;
-  assert(!mi.values.get(k));
-  monomial m = mi;
-  m.mask.set(k, false);
+  monomial m = mi;          // Copy values and mask of 'mi'.
+  assert(!m.values.get(k)); // As we have 'mi < mj' due to sorting.
+  m.mask.set(k, false);     // Clear mask-bit at position 'k'.
   next.add(m);
   return true;
 }
 
-// Generate a normalized 'primes' polynomialial of 'p' (destroys 'p') based on
+// Generate a normalized 'primes' polynomial of 'p' (destroys 'p') based on
 // the Quine-McCluskey algorithm in an non-optimzed and optimized variant.
 
 void generate(polynomial &p, polynomial &primes) {
 
-  vector<bool> prime;
-  polynomial next;
+  // The following two vectors are declared outside the main loop in order
+  // to avoid allocating and deallocating them.  Instead they are cleared.
 
-  while (!p.empty()) {
+  vector<bool> prime; // Which monomials have been merged?
+  polynomial next;    // Monomials kept for next round.
 
-    const size_t size = p.size();
+  size_t round = 0;
+
+  while (!p.empty()) { // As long monomials were merged.
+
+    round++;
+    verbose("round %zu polynomial with %zu monomials", round, p.size());
+
     prime.clear();
+    const size_t size = p.size();
     for (size_t i = 0; i != size; i++)
       prime.push_back(true);
 
@@ -400,19 +447,20 @@ void generate(polynomial &p, polynomial &primes) {
 
     for (size_t i = 0; i + 1 != size; i++)
       for (size_t j = i + 1; j != size; j++)
-        if (consensus(p[i], p[j], next, primes))
+        if (consensus(p[i], p[j], next))
           prime[i] = prime[j] = false;
 
 #else
 
     // This is the optimized version (enabled by default).  It uses sorting
     // by normalization to avoid a quadratic number of 'match' comparisons,
-    // similarly to one pass in merge-sort.
+    // similarly to one pass in merge-sort. But otherwise it relies on the
+    // same 'consensus' kernel.
 
     // A 'block' is an interval of monomials with the same number 'ones' of
     // valid true bits'.  A 'slice' is an interval of monomials with the
     // same number 'ones' of true bits (thus a sub-interval of a block) and
-    // also the same valid bits in 'mask'.
+    // also exactly the same valid bits in 'mask' set to true.
 
     // Only slices with the same 'mask' have to be compared in consecutive
     // blocks.  Therefore we go over all pairs of subsequent blocks and
@@ -420,8 +468,8 @@ void generate(polynomial &p, polynomial &primes) {
 
     // As blocks are ordered by 'ones' and within blocks slices are ordered
     // by 'mask' and we only need to compare monomials with the same number
-    // of ones and the same mask, the overall complexity of one outer loop
-    // round becomes linear in the size of that outer polynomialial 'p'.
+    // of ones and the same mask, the overall complexity of one outer main
+    // loop round becomes linear in the size of the outer polynomial 'p'.
 
     size_t begin_first_block = 0;
     size_t end_first_block = begin_first_block + 1;
@@ -466,7 +514,7 @@ void generate(polynomial &p, polynomial &primes) {
 
             for (size_t i = begin_first_slice; i != end_first_slice; i++)
               for (size_t j = begin_second_slice; j != end_second_slice; j++)
-                if (consensus(p[i], p[j], next, primes))
+                if (consensus(p[i], p[j], next))
                   prime[i] = prime[j] = false;
           }
 
@@ -480,12 +528,14 @@ void generate(polynomial &p, polynomial &primes) {
 
 #endif
 
+    // All the monomials which were not merged are prime implicants.
+
     for (size_t i = 0; i != size; i++)
       if (prime[i])
         primes.add(p[i]);
 
     next.normalize(); // Sort and remove duplicates.
-    p = next;
+    p = next;         // Now 'next' becomes new polynomial 'p'.
   }
 }
 
@@ -494,23 +544,45 @@ void generate(polynomial &p, polynomial &primes) {
 // Parse command line options and set/reset input and output files.
 
 static void init(int argc, char **argv) {
-  if (argc > 3)
-    die("more than two arguments");
-  if (argc == 1)
-    input = stdin, output = stdout, path = "<stdin>";
-  else if (!(input = fopen(path = argv[1], "r")))
-    die("can not read input file given as first argument");
-  else if (argc == 2)
-    output = stdout;
-  else if (!(output = fopen(argv[2], "w")))
-    die("can not write output file given as second argument");
+
+  for (int i = 1; i != argc; i++) {
+    const char *arg = argv[i];
+    if (!strcmp(arg, "-h")) {
+      fputs("usage: quienny [ -h | -v ] [ <input> [ <output> ] ]\n", stderr);
+      exit(1);
+    } else if (!strcmp(arg, "-v"))
+      verbosity += verbosity >= 0 && (verbosity < INT_MAX);
+    else if (arg[0] == '-' && arg[1])
+      die("invalid option '%s' (try '-h')", arg);
+    else if (!input_path)
+      input_path = arg;
+    else if (!output_path)
+      output_path = arg;
+    else
+      die("too many files '%s', '%s', and '%s' (try '-h')", input_path,
+          output_path, arg);
+  }
+
+  if (!input_path || (input_path && !strcmp(input_path, "-")))
+    input_path = "<stdin>", input_file = stdin;
+  else if (!(input_file = fopen(input_path, "r")))
+    die("can not read '%s'", input_path);
+  else
+    close_input = true;
+
+  if (!output_path || (output_path && !strcmp(output_path, "-")))
+    output_path = "<stdin>", output_file = stdout;
+  else if (!(output_file = fopen(output_path, "w")))
+    die("can not write '%s'", output_path);
+  else
+    close_output = true;
 }
 
 static void reset(int argc) {
-  if (argc > 1)
-    fclose(input);
-  if (argc > 2)
-    fclose(output);
+  if (close_input)
+    fclose(input_file);
+  if (close_output)
+    fclose(output_file);
 }
 
 /*------------------------------------------------------------------------*/
@@ -522,8 +594,10 @@ int main(int argc, char **argv) {
   minterms.normalize();
   polynomial primes, tmp = minterms;
   generate(tmp, primes);
+  verbose("compared %zu monomials", compared);
   primes.normalize();
-  primes.print(output);
+  verbose("primes polynomial with %zu monomials", primes.size());
+  primes.print(output_file);
   reset(argc);
   return 0;
 }
