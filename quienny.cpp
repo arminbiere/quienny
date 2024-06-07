@@ -1,89 +1,193 @@
 #include <algorithm>
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 
-static FILE *input, *output;
-static unsigned variables;
+//------------------------------------------------------------------------//
 
 using namespace std;
+
+//------------------------------------------------------------------------//
+
+// Global input and output variables.
+
+static const char *path;
+static size_t lineno = 1;
+static FILE *input, *output;
+
+static int read_char() {
+  int res = getc(input);
+  if (res == '\n')
+    lineno++;
+  return res;
+}
+
+//------------------------------------------------------------------------//
+
+// Represent the range of variables '[0, ..., n-1]'.
+
+// The purpose of this struct is to enable the use of the idiom
+//
+//   for (auto i : variables)
+//
+// It not only simplifies the code but more important avoids that the
+// compiler needs to rely on alias analysis to make sure that 'variables' is
+// not written inside the loop and has to be read during every iteration.
+
+// In more recent C++ versions 'itoa' could be used instead.
+
+struct range {
+  size_t size = 0;
+  void operator++(int) { size++; }
+  struct iterator {
+    size_t current;
+    void operator++() { current++; }
+    size_t operator*() const { return current; }
+    bool operator!=(const iterator &other) const {
+      return current != other.current;
+    }
+    iterator(size_t i) : current(i) {}
+  };
+  iterator begin() { return iterator(0); }
+  iterator end() { return iterator(size); }
+};
+
+static range variables;
+
+//------------------------------------------------------------------------//
 
 static void die(const char *msg) {
   fprintf(stderr, "quienny: error: %s\n", msg);
   exit(1);
 }
 
+static void parse_error(const char *msg) {
+  fprintf(stderr, "quienny: parse error: at line %zu in '%s': %s\n", lineno,
+          path, msg);
+  exit(1);
+}
+
+//------------------------------------------------------------------------//
+
+// A monome consists of a bit-vector of 'values' masked by 'mask'.  Only
+// value bits which have a corresponding mask bit set are valid.  The others
+// are invalid, thus "don't cares" ('-').
+
 struct monom {
-  unsigned mask;
-  unsigned values;
-  void print() {
-    for (unsigned i = 0, bit = 1; i != variables; i++, bit <<= 1)
-      fputc(mask & bit ? '0' + !!(values & bit) : '-', output);
-    fputc('\n', output);
-  }
-  bool first() {
-    int ch = getc(input);
-    if (ch == EOF)
-      return false;
-    unsigned bits = 0, bit = 1;
-    for (; ch != '\n'; bit <<= 1, ch = getc(input))
-      if (variables++ == 32)
-        die("minterm too large");
-      else if (ch == '1')
-        bits |= bit;
-      else if (ch != '0')
-        die("expected '0' or '1' or new-line");
-    mask = bit - 1;
-    values = bits;
-    return true;
-  }
-  bool read() {
-    int ch = getc(input);
-    if (ch == EOF)
-      return false;
-    unsigned bits = 0, bit = 1;
-    for (unsigned i = 0; i != variables; i++, bit <<= 1, ch = getc(input))
-      if (ch == '1')
-        bits |= bit;
-      else if (ch != '0')
-        die("expected '0' or '1'");
-    if (ch != '\n')
-      die("expected new-line");
-    mask = bit - 1;
-    values = bits;
-    return true;
-  }
-  bool equal(const monom &m) const {
-    if (mask != m.mask)
-      return false;
-    for (unsigned i = 0, bit = 1; i != variables; i++, bit <<= 1)
-      if ((bit & mask) && (values & bit) != (m.values & bit))
-        return false;
-    return true;
-  }
-  bool match(const monom &m, unsigned &where) {
-    if (mask != m.mask)
-      return false;
-    bool matched = false;
-    for (unsigned i = 0, bit = 1; i != variables; i++, bit <<= 1) {
-      if (!(bit & mask))
-        continue;
-      if ((values & bit) == (m.values & bit))
-        continue;
-      if (matched)
-        return false;
-      matched = true;
-      where = bit;
-    }
-    return matched;
-  }
+  vector<bool> mask;
+  vector<bool> values;
+  void print();
+  bool first(); // Parse first monome.
+  bool read();  // Parse following monomes.
+  bool operator==(const monom &) const;
+  bool operator<(const monom &) const;
+  bool match(const monom &, size_t &where) const;
 };
+
+void monom::print() {
+  for (auto i : variables)
+    fputc(mask[i] ? '0' + values[i] : '-', output);
+  fputc('\n', output);
+}
+
+// Parsing the first monome in the 'input' file also sets the range of
+// variables.  The function returns 'false' if end-of-file is found instead.
+
+bool monom::first() {
+  int ch = read_char();
+  if (ch == EOF)
+    return false;
+  while (ch != '\n') {
+    bool value = false;
+    if (ch == '1')
+      value = true;
+    else if (ch != '0')
+      parse_error("expected '0' or '1' or new-line");
+    values.push_back(value);
+    mask.push_back(true);
+    ch = read_char();
+    variables++;
+  }
+  return true;
+}
+
+// Parsing the remaining monome in the 'input' file after parsing the first
+// one. These monomes need to have the size of the 'first' parsed monome.
+// The function returns 'false' if the end-of-file is reached.
+
+bool monom::read() {
+  int ch = read_char();
+  if (ch == EOF)
+    return false;
+  for (auto i : variables) {
+    bool value = false;
+    if (ch == '1')
+      value = true;
+    else if (ch != '0')
+      parse_error("expected '0' or '1'");
+    values[i] = value;
+    mask[i] = true;
+    ch = read_char();
+  }
+  if (ch != '\n')
+    parse_error("expected new-line");
+  return true;
+}
+
+bool monom::operator==(const monom &other) const {
+  if (mask != other.mask)
+    return false;
+  for (auto i : variables)
+    if (mask[i] && values[i] != other.values[i])
+      return false;
+  return true;
+}
+
+bool monom::operator<(const monom &other) const {
+  for (auto i : variables) {
+    const bool this_mask = mask[i];
+    const bool this_value = values[i];
+    const bool other_mask = other.mask[i];
+    const bool other_value = other.values[i];
+    if (this_mask < other_mask)
+      return other_value;
+    if (this_mask > other_mask)
+      return !this_value;
+    if (this_value < other_value)
+      return true;
+    if (this_value > other_value)
+      return false;
+  }
+  return false;
+}
+
+// Check whether the 'other' monom differs in exactly one valid bit. If this
+// is the case the result parameter 'where' is set to that bit position.
+
+bool monom::match(const monom &other, size_t &where) const {
+  if (mask != other.mask)
+    return false;
+  bool matched = false;
+  for (auto i : variables) {
+    if (!mask[i])
+      continue;
+    if (values[i] == other.values[i])
+      continue;
+    if (matched)
+      return false;
+    matched = true;
+    where = i;
+  }
+  return matched;
+}
+//------------------------------------------------------------------------//
 
 typedef vector<monom> polynom;
 
 static bool contains(const polynom &p, const monom &needle) {
   for (auto m : p)
-    if (m.equal(needle))
+    if (m == needle)
       return true;
   return false;
 }
@@ -102,39 +206,21 @@ static void parse(polynom &p) {
   }
 }
 
-struct less_monom {
-  bool operator()(const monom &a, const monom &b) {
-    for (unsigned i = 0, bit = 1; i != variables; i++, bit <<= 1) {
-      const unsigned amask = a.mask & bit;
-      const unsigned bmask = b.mask & bit;
-      const unsigned avalue = a.values & bit;
-      const unsigned bvalue = b.values & bit;
-      if (amask < bmask)
-        return bvalue;
-      if (amask > bmask)
-        return !avalue;
-      if (avalue < bvalue)
-        return true;
-      if (avalue > bvalue)
-        return false;
-    }
-    return false;
-  }
-};
-
-static void sort(polynom &p) { sort(p.begin(), p.end(), less_monom()); }
+static void sort(polynom &p) { sort(p.begin(), p.end()); }
 
 static void print(const polynom &p) {
   for (auto m : p)
     m.print();
 }
 
+//------------------------------------------------------------------------//
+
 int main(int argc, char **argv) {
   if (argc > 3)
     die("more than two arguments");
   if (argc == 1)
-    input = stdin, output = stdout;
-  else if (!(input = fopen(argv[1], "r")))
+    input = stdin, output = stdout, path = "<stdin>";
+  else if (!(input = fopen(path = argv[1], "r")))
     die("can not read input file given as first argument");
   else if (argc == 2)
     output = stdout;
@@ -146,21 +232,20 @@ int main(int argc, char **argv) {
   vector<bool> prime;
   while (!p.empty()) {
     const size_t size = p.size();
-    prime.clear ();
+    prime.clear();
     for (size_t i = 0; i != size; i++)
-      prime.push_back (true);
+      prime.push_back(true);
     q.clear();
     for (size_t i = 0; i + 1 != size; i++) {
-      auto mi = p[i];
+      const auto &mi = p[i];
       for (size_t j = i + 1; j != size; j++) {
-        auto &mj = p[j];
-        unsigned bit;
-        if (!mi.match(mj, bit))
+        const auto &mj = p[j];
+        size_t k;
+        if (!mi.match(mj, k))
           continue;
         prime[i] = prime[j] = false;
-        monom m;
-        m.mask = mi.mask & ~bit;
-        m.values = mi.values;
+        monom m = mi;
+        m.mask[k] = false;
         insert(q, m);
       }
     }
@@ -169,7 +254,7 @@ int main(int argc, char **argv) {
         insert(primes, p[i]);
     p = q;
   }
-  sort (primes);
+  sort(primes);
   print(primes);
   if (argc > 1)
     fclose(input);
