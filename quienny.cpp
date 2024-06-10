@@ -2,7 +2,7 @@
 /* Copyright (c) 2024, Armin Biere, University of Freiburg, Germany       */
 /*------------------------------------------------------------------------*/
 
-static char char *usage = " usage : quienny[-h | -v][<input>[<output>]]\n";
+static const char *usage = " usage : quienny[-h | -v][<input>[<output>]]\n";
 
 /*------------------------------------------------------------------------*/
 
@@ -104,7 +104,7 @@ static void die(const char *fmt, ...) {
 
 static void parse_error(const char *fmt, ...) {
   fprintf(stderr, "quienny: parse error: at line %zu in '%s': ", lineno,
-	  input_path);
+          input_path);
   va_list ap;
   va_start(ap, fmt);
   vfprintf(stderr, fmt, ap);
@@ -226,12 +226,12 @@ bool monomial::parse_first() {
       value = true;
     else if (ch != '0') {
       if (ch == EOF)
-	parse_error("unexpected end-of-file (expected '0' or '1' or new-line)");
+        parse_error("unexpected end-of-file (expected '0' or '1' or new-line)");
       else if (isprint(ch))
-	parse_error("expected '0' or '1' or new-line at '%c'", ch);
+        parse_error("expected '0' or '1' or new-line at '%c'", ch);
       else
-	parse_error("expected '0' or '1' or new-line at caracter code '0x%02x'",
-		    ch);
+        parse_error("expected '0' or '1' or new-line at caracter code '0x%02x'",
+                    ch);
     } else if (variables == max_variables)
       parse_error("monomial too large");
     values.add(variables, value);
@@ -258,15 +258,15 @@ bool monomial::parse_remaining() {
       value = true;
     else if (ch != '0') {
       if (ch == EOF)
-	parse_error("unexpected end-of-file (expected '0' or '1')");
+        parse_error("unexpected end-of-file (expected '0' or '1')");
       else if (ch == '\n') {
-	assert(lineno > 1);
-	lineno--;
-	parse_error("unexpected new-line (expected '0' or '1')");
+        assert(lineno > 1);
+        lineno--;
+        parse_error("unexpected new-line (expected '0' or '1')");
       } else if (isprint(ch))
-	parse_error("expected '0' or '1' at '%c'", ch);
+        parse_error("expected '0' or '1' at '%c'", ch);
       else
-	parse_error("expected '0' or '1' at caracter code '0x%02x'", ch);
+        parse_error("expected '0' or '1' at caracter code '0x%02x'", ch);
     }
     values.set(i, value);
     mask.set(i, true);
@@ -442,13 +442,13 @@ void polynomial::print(FILE *file) const {
 // to 'next' and the function returns 'true'. On failure return 'false'.
 
 static inline bool consensus(const monomial &mi, const monomial &mj,
-			     polynomial &next) {
+                             polynomial &next) {
   size_t k;
   if (!mi.match(mj, k))
     return false;
-  monomial m = mi;	    // Copy values and mask of 'mi'.
+  monomial m = mi;          // Copy values and mask of 'mi'.
   assert(!m.values.get(k)); // As we have 'mi < mj' due to sorting.
-  m.mask.set(k, false);	    // Clear mask-bit at position 'k'.
+  m.mask.set(k, false);     // Clear mask-bit at position 'k'.
   next.add(m);
   return true;
 }
@@ -485,8 +485,8 @@ void generate(polynomial &p, polynomial &primes) {
 
     for (size_t i = 0; i + 1 != size; i++)
       for (size_t j = i + 1; j != size; j++)
-	if (consensus(p[i], p[j], next))
-	  prime[i] = prime[j] = false;
+        if (consensus(p[i], p[j], next))
+          prime[i] = prime[j] = false;
 
 #else
 
@@ -512,7 +512,7 @@ void generate(polynomial &p, polynomial &primes) {
     size_t begin_first_block = 0;
     size_t end_first_block = begin_first_block + 1;
     while (end_first_block != size &&
-	   p[begin_first_block].ones == p[end_first_block].ones)
+           p[begin_first_block].ones == p[end_first_block].ones)
       end_first_block++;
 
     while (end_first_block != size) {
@@ -521,43 +521,43 @@ void generate(polynomial &p, polynomial &primes) {
       size_t end_second_block = begin_second_block + 1;
 
       while (end_second_block != size &&
-	     p[begin_second_block].ones == p[end_second_block].ones)
-	end_second_block++;
+             p[begin_second_block].ones == p[end_second_block].ones)
+        end_second_block++;
 
       if (p[begin_first_block].ones + 1 == p[begin_second_block].ones) {
 
-	size_t begin_first_slice = begin_first_block;
-	size_t begin_second_slice = begin_second_block;
+        size_t begin_first_slice = begin_first_block;
+        size_t begin_second_slice = begin_second_block;
 
-	while (begin_first_slice != end_first_block) {
+        while (begin_first_slice != end_first_block) {
 
-	  size_t end_first_slice = begin_first_slice + 1;
-	  while (end_first_slice != end_first_block &&
-		 p[begin_first_slice].mask == p[end_first_slice].mask)
-	    end_first_slice++;
+          size_t end_first_slice = begin_first_slice + 1;
+          while (end_first_slice != end_first_block &&
+                 p[begin_first_slice].mask == p[end_first_slice].mask)
+            end_first_slice++;
 
-	  while (begin_second_slice != end_second_block &&
-		 p[begin_first_slice].mask != p[begin_second_slice].mask)
-	    begin_second_slice++;
+          while (begin_second_slice != end_second_block &&
+                 p[begin_first_slice].mask != p[begin_second_slice].mask)
+            begin_second_slice++;
 
-	  if (begin_second_slice != end_second_block) {
+          if (begin_second_slice != end_second_block) {
 
-	    size_t end_second_slice = begin_second_slice + 1;
-	    while (end_second_slice != end_second_block &&
-		   p[begin_first_slice].mask == p[end_second_slice].mask)
-	      end_second_slice++;
+            size_t end_second_slice = begin_second_slice + 1;
+            while (end_second_slice != end_second_block &&
+                   p[begin_first_slice].mask == p[end_second_slice].mask)
+              end_second_slice++;
 
-	    // This is the same code as in the unoptimized version except
-	    // that we can restrict the comparisons to smaller intervals.
+            // This is the same code as in the unoptimized version except
+            // that we can restrict the comparisons to smaller intervals.
 
-	    for (size_t i = begin_first_slice; i != end_first_slice; i++)
-	      for (size_t j = begin_second_slice; j != end_second_slice; j++)
-		if (consensus(p[i], p[j], next))
-		  prime[i] = prime[j] = false;
-	  }
+            for (size_t i = begin_first_slice; i != end_first_slice; i++)
+              for (size_t j = begin_second_slice; j != end_second_slice; j++)
+                if (consensus(p[i], p[j], next))
+                  prime[i] = prime[j] = false;
+          }
 
-	  begin_first_slice = end_first_slice;
-	}
+          begin_first_slice = end_first_slice;
+        }
       }
 
       begin_first_block = begin_second_block;
@@ -570,10 +570,10 @@ void generate(polynomial &p, polynomial &primes) {
 
     for (size_t i = 0; i != size; i++)
       if (prime[i])
-	primes.add(p[i]);
+        primes.add(p[i]);
 
     next.normalize(); // Sort and remove duplicates.
-    p = next;	      // Now 'next' becomes new polynomial 'p'.
+    p = next;         // Now 'next' becomes new polynomial 'p'.
   }
 }
 
@@ -586,7 +586,8 @@ static void init(int argc, char **argv) {
   for (int i = 1; i != argc; i++) {
     const char *arg = argv[i];
     if (!strcmp(arg, "-h")) {
-      fputs(usage, stderr) exit(1);
+      fputs(usage, stderr);
+      exit(1);
     } else if (!strcmp(arg, "-v"))
       verbosity += verbosity >= 0 && (verbosity < INT_MAX);
     else if (arg[0] == '-' && arg[1])
@@ -597,7 +598,7 @@ static void init(int argc, char **argv) {
       output_path = arg;
     else
       die("too many files '%s', '%s', and '%s' (try '-h')", input_path,
-	  output_path, arg);
+          output_path, arg);
   }
 
   if (!input_path || (input_path && !strcmp(input_path, "-")))
