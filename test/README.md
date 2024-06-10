@@ -10,5 +10,5 @@ all minterms of the given size, `abo`, which generates all except the one
 with only ones, and `abz` which also generates all minterms except the one
 with only zeros.  The first set of polynomials produced by `all` have
 worst-case expected running time, while the latter ones also require many
-cube comparisons. These performance regression test generators are compiled
-with `make all`, `make abo`, or `make abz`.
+monomial comparisons. These performance regression test generators are
+compiled with `make all`, `make abo`, or `make abz`.
